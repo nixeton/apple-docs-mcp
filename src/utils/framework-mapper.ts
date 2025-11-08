@@ -190,6 +190,9 @@ export const FRAMEWORK_MAPPINGS: Record<string, string> = {
   'callkit': 'CallKit',
   'call-kit': 'CallKit',
   'call_kit': 'CallKit',
+  'alarmkit': 'AlarmKit',
+  'alarm-kit': 'AlarmKit',
+  'alarm_kit': 'AlarmKit',
 
   // Machine Learning & AI
   'coreml': 'Core ML',
@@ -407,6 +410,7 @@ export const FRAMEWORK_ALIASES: Record<string, string[]> = {
   'HomeKit': ['homekit', 'home-kit', 'home_kit'],
   'MapKit': ['mapkit', 'map-kit', 'map_kit'],
   'StoreKit': ['storekit', 'store-kit', 'store_kit'],
+  'AlarmKit': ['alarmkit', 'alarm-kit', 'alarm_kit'],
   'WebKit': ['webkit', 'web-kit', 'web_kit'],
 } as const;
 
@@ -420,7 +424,7 @@ export const FRAMEWORK_CATEGORIES = {
   'Media': ['AVFoundation', 'Core Audio', 'PhotoKit', 'MusicKit'],
   'Data': ['Core Data', 'CloudKit', 'UserDefaults', 'Keychain Services'],
   'ML': ['Core ML', 'Create ML', 'Natural Language', 'Vision', 'Speech'],
-  'Services': ['HealthKit', 'HomeKit', 'MapKit', 'StoreKit'],
+  'Services': ['HealthKit', 'HomeKit', 'MapKit', 'StoreKit', 'AlarmKit'],
   'System': ['Core Bluetooth', 'Core Motion', 'Core Location'],
   'Foundation': ['Foundation', 'Combine', 'Swift'],
 } as const;
