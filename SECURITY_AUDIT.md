@@ -9,13 +9,16 @@
 
 ## Executive Summary
 
-This MCP server provides Apple Developer Documentation search and WWDC video browsing capabilities to AI assistants (Claude, Cursor, etc.) via the Model Context Protocol. The server is **read-only** (no file writes, no command execution) and makes outbound HTTP requests exclusively to `developer.apple.com`. Overall, the server presents a **low-to-moderate risk profile** for end users, with several findings that range from informational to medium severity.
+This MCP server provides Apple Developer Documentation search and WWDC video browsing capabilities to AI assistants (Claude, Cursor, etc.) via the Model Context Protocol. The server is **read-only** (no file writes, no command execution) and makes outbound HTTP requests to `developer.apple.com`.
 
-**Critical findings: 0**
-**High findings: 1**
-**Medium findings: 4**
-**Low findings: 4**
-**Informational findings: 3**
+**Important context:** Apple does not provide an official public API for querying developer documentation. The only way to programmatically access this content is through Apple's undocumented web endpoints and HTML pages. The browser header simulation in this server is a necessary design choice, not a security defect.
+
+With that context, the audit focuses on findings that pose **real risk to users**: arbitrary file reads, request forgery, and resource exhaustion.
+
+**High findings: 1** (path traversal — real exploit risk)
+**Medium findings: 1** (SSRF via URL validation bypass — real exploit risk)
+**Low findings: 5** (robustness and quality issues)
+**Informational findings: 4** (design trade-offs and context)
 
 ---
 
@@ -54,17 +57,21 @@ async function readBundledFile(filePath: string): Promise<string> {
 }
 ```
 
-A malicious MCP client or prompt injection attack could supply path traversal payloads like `topicId: "../../etc/passwd"` or `videoId: "../../../.env"` to read arbitrary files from the host filesystem. While the Zod schemas validate that `year` and `videoId` are strings, they do **not** validate that the values are free of path separators (`../`).
+A prompt injection attack could supply path traversal payloads like `topicId: "../../etc/passwd"` or `videoId: "../../../.ssh/id_rsa"` to read arbitrary files from the host filesystem. The Zod schemas only validate that these are strings — they do **not** reject path separators (`../`).
 
-**Impact:** An attacker who can control tool arguments (via prompt injection into the AI model) could read arbitrary files on the user's machine, including environment variables, SSH keys, credentials, and other sensitive data.
+**Attack scenario:** An attacker embeds a prompt injection in a webpage or document that the AI model processes. The injection instructs the model to call `get_wwdc_video` with `year: "2024"` and `videoId: "../../../../.env"`. The server reads the file and returns its contents to the AI model, which the attacker can then exfiltrate.
+
+**Impact:** Arbitrary file read on the user's machine. An attacker could steal SSH keys, environment variables with API tokens, credentials files, and other sensitive data.
 
 **Recommendation:**
-- Validate `year`, `videoId`, and `topicId` against strict allowlists or patterns (e.g., `year` must match `/^\d{4}$/`, `videoId` must match `/^\d+$/`, `topicId` must match `/^[a-z0-9-]+$/`).
-- Use `path.resolve()` and verify the resolved path starts with the expected base directory before reading.
+- Validate `year` against `/^\d{4}$/`
+- Validate `videoId` against `/^\d+$/`
+- Validate `topicId` against `/^[a-z0-9-]+$/`
+- As defense in depth: resolve the full path with `path.resolve()` and verify it starts with `WWDC_DATA_DIR` before reading.
 
 ---
 
-### MED-1: Insufficient URL Validation Allows Broader Request Scope
+### MED-1: SSRF via Insufficient URL Validation
 
 **Severity:** MEDIUM
 **Location:** `src/tools/doc-fetcher.ts:268`, `src/utils/url-converter.ts:55-62`
@@ -84,277 +91,151 @@ This is bypassable with URLs like:
 - `https://developer.apple.com.evil.com/path`
 - `https://evil.com/developer.apple.com`
 
-While the `isValidAppleDeveloperUrl()` in `url-converter.ts` properly checks `hostname === 'developer.apple.com'`, it is only called in `getAppleDocContent()` in `index.ts`. Other code paths like `fetchAppleDocJson()` and internal reference-following use the weaker check.
+A proper hostname check exists (`isValidAppleDeveloperUrl()` in `url-converter.ts` uses `hostname === 'developer.apple.com'`), but it is only called in `getAppleDocContent()` in `index.ts`. The `fetchAppleDocJson()` function and its recursive reference-following code path use the weaker `includes()` check.
 
-Additionally, when `fetchAppleDocJson()` follows references recursively (line 308-315), it constructs new URLs from data returned by Apple's API without validating the constructed URL:
+**Attack scenario:** Via prompt injection, the AI model is instructed to call `get_apple_doc_content` with a crafted URL that passes the weak check. The server makes an HTTP request to an attacker-controlled domain, potentially leaking the user's IP address, internal network information, or allowing the attacker to serve malicious content back through the tool response.
 
-```typescript
-const refUrl = `https://developer.apple.com/tutorials/data/documentation/${refPath}.json`;
-return await fetchAppleDocJson(refUrl, options, maxDepth - 1);
-```
-
-The `refPath` comes from `mainReference.url` in the API response, which could potentially be manipulated via a response poisoning scenario.
-
-**Impact:** In a prompt injection scenario, an attacker could potentially trick the MCP server into making requests to arbitrary URLs, enabling SSRF or data exfiltration.
+**Impact:** The server could be tricked into making requests to arbitrary domains from the user's machine.
 
 **Recommendation:**
 - Replace the `includes()` check in `fetchAppleDocJson()` with the proper `isValidAppleDeveloperUrl()` hostname check.
-- Validate all constructed URLs before making HTTP requests.
+- Validate all constructed URLs (including recursive reference URLs) before making HTTP requests.
+- As defense in depth: add domain allowlisting at the HTTP client level.
 
 ---
 
-### MED-2: Unbounded Memory Consumption via Cache Poisoning
+### LOW-1: Unbounded Individual Cache Entry Size
 
-**Severity:** MEDIUM
+**Severity:** LOW
 **Location:** `src/utils/cache.ts:1-160`
 **CWE:** CWE-400 (Uncontrolled Resource Consumption)
 
 **Description:**
-The in-memory caching system stores response data without any limit on individual entry size. Combined across all cache instances, the server can hold:
+The caching system limits the number of entries per cache but not the size of individual values. An unusually large API response could consume significant memory. Combined across 8 cache instances (1,250 total entry slots), memory usage is theoretically unbounded per entry.
 
-- `apiCache`: 500 entries
-- `searchCache`: 200 entries
-- `indexCache`: 100 entries
-- `technologiesCache`: 50 entries
-- `updatesCache`: 100 entries
-- `sampleCodeCache`: 100 entries
-- `technologyOverviewsCache`: 100 entries
-- `wwdcDataCache`: 100 entries
-
-There are no bounds on the size of individual cached values. If an Apple API response (or a crafted one in an SSRF scenario) returns an extremely large payload, it could cause the Node.js process to consume excessive memory, leading to denial of service for the user's machine.
-
-Furthermore, the `setInterval` cleanup timer in the cache constructor runs indefinitely and is not cleaned up on server shutdown, which could lead to resource leaks.
-
-**Impact:** A degraded performance or out-of-memory crash on the user's machine.
+In practice this is unlikely to cause issues since responses come from Apple's servers, but if combined with the SSRF finding (MED-1), an attacker-controlled server could return very large payloads.
 
 **Recommendation:**
-- Add maximum size limits per cached value.
-- Track total memory usage across caches.
-- Clean up the `setInterval` timer reference on shutdown.
+- Add a maximum size check per cached value (e.g., reject values over 1MB).
 
 ---
 
-### MED-3: User-Agent Spoofing and TOS Violation Risk
-
-**Severity:** MEDIUM (Operational)
-**Location:** `src/utils/constants.ts:66-101`, `src/utils/http-client.ts`, `src/utils/http-headers-generator.ts`, `src/utils/user-agent-pool.ts`
-**CWE:** N/A (Terms of Service / Ethical concern)
-
-**Description:**
-The server implements a sophisticated browser impersonation system:
-
-1. **25 Safari User-Agent strings** covering multiple macOS versions
-2. **User-Agent pool rotation** with `random`, `sequential`, and `smart` strategies
-3. **Full browser header simulation** including `Sec-Fetch-*`, `Accept-Language` rotation, and DNT headers
-4. **Automatic failure recovery** that marks User-Agents as failed and rotates to working ones
-
-This system is explicitly designed to make HTTP requests appear as if they originate from real Safari browsers to avoid detection by Apple's servers. The code comments confirm this intent:
-
-> "Smart User-Agent pool rotation with automatic failure recovery"
-> "Dynamic browser headers generation... to avoid detection and improve API reliability"
-
-**Impact:** Users running this MCP server may unknowingly violate Apple's Terms of Service for developer.apple.com, which could result in IP bans or account restrictions. The aggressive rotation and failure-recovery mechanisms could also be interpreted as automated scraping. If Apple blocks the user's IP address, it could affect their legitimate developer account access.
-
-**Recommendation:**
-- Users should be aware they are making automated requests disguised as browser traffic to Apple's servers.
-- Consider using a static, honest User-Agent string that identifies the tool (e.g., `apple-docs-mcp/1.0.26`).
-- Alternatively, use Apple's official APIs if available.
-
----
-
-### MED-4: Error Messages Leak Internal State
-
-**Severity:** MEDIUM
-**Location:** `src/utils/error-handler.ts:38-89`, `src/tools/doc-fetcher.ts:326-349`
-**CWE:** CWE-209 (Generation of Error Message Containing Sensitive Information)
-
-**Description:**
-Error responses include raw error messages, internal URLs, and stack traces that are passed back to the AI model as tool results:
-
-```typescript
-// error-handler.ts:73
-suggestions: [
-  'Visit the original URL directly: ${url}',
-]
-
-// doc-fetcher.ts:344
-text: `Error: Failed to get Apple doc content: ${errorMessage}\n\nPlease try accessing the documentation directly at: ${url}`,
-```
-
-When errors occur, raw exception messages from Node.js, the HTTP client, or filesystem operations are included in the response. These could expose:
-- Internal file paths (from WWDC data loading errors)
-- Network topology information
-- Server-side error details
-
-Since MCP tool responses are consumed by AI models which may include this information in their responses to users, sensitive internal details could be disclosed.
-
-**Impact:** Information leakage of internal paths and server state via error messages.
-
-**Recommendation:**
-- Return sanitized, user-friendly error messages.
-- Log detailed error information internally only.
-- Avoid exposing raw filesystem paths or error stack traces in tool responses.
-
----
-
-### LOW-1: No Input Length Limits on Search Queries
+### LOW-2: No Input Length Limits on Search Queries
 
 **Severity:** LOW
 **Location:** `src/schemas/search.schema.ts:3-7`
 **CWE:** CWE-400 (Uncontrolled Resource Consumption)
 
 **Description:**
-The `searchAppleDocsSchema` defines `query` as `z.string()` with no maximum length constraint:
-
-```typescript
-export const searchAppleDocsSchema = z.object({
-  query: z.string().describe('Search query'),
-  type: z.enum(['all', 'documentation', 'sample']).default('all'),
-});
-```
-
-An extremely long query string would be URL-encoded and sent to Apple's search endpoint, potentially causing request timeouts or excessive memory usage during URL construction and response parsing.
-
-Similarly, the `searchWWDCContentSchema` has `query: z.string().min(1)` but no max length.
+The `searchAppleDocsSchema` defines `query` as `z.string()` with no maximum length constraint. An extremely long query string would be URL-encoded and sent to Apple's endpoint, potentially causing timeouts.
 
 **Recommendation:**
-- Add `.max(500)` or similar length limits to all string inputs in Zod schemas.
+- Add `.max(500)` or similar length limits to string inputs in Zod schemas.
 
 ---
 
-### LOW-2: Recursive Reference Following Without Full Depth Control
+### LOW-3: Error Messages Expose Internal Paths
 
 **Severity:** LOW
-**Location:** `src/tools/doc-fetcher.ts:296-316`
-**CWE:** CWE-674 (Uncontrolled Recursion)
+**Location:** `src/utils/error-handler.ts:38-89`, `src/tools/doc-fetcher.ts:326-349`
+**CWE:** CWE-209 (Generation of Error Message Containing Sensitive Information)
 
 **Description:**
-The `fetchAppleDocJson()` function recursively follows references in API responses:
-
-```typescript
-if (!jsonData.primaryContentSections &&
-    jsonData.references && maxDepth > 0) {
-  const refUrl = `...`;
-  return await fetchAppleDocJson(refUrl, options, maxDepth - 1);
-}
-```
-
-While `maxDepth` defaults to 2, which limits recursion, the parameter is not validated against being set to an excessively large value from the tool call. The function accepts `maxDepth` as a number without bounds.
-
-**Impact:** Minimal - the current default of 2 is safe, and the parameter is not directly exposed to MCP tool arguments. However, if the API is extended to expose this parameter, it could enable resource exhaustion.
+Error responses include raw exception messages from Node.js and filesystem operations that are returned to the AI model. These could expose internal file paths (e.g., from failed WWDC data loads). Since the server runs locally, the leaked paths are the user's own — this is low impact, but the paths could be useful to an attacker who has already achieved prompt injection and is trying to target specific files via HIGH-1.
 
 **Recommendation:**
-- Cap `maxDepth` to a maximum value (e.g., 5) regardless of input.
+- Return sanitized, generic error messages in tool responses.
+- Log detailed errors internally only.
 
 ---
 
-### LOW-3: Sensitive Environment Variable Accepted Without Documentation
+### LOW-4: Sensitive Environment Variables Accepted Without Validation
 
 **Severity:** LOW
 **Location:** `src/utils/http-client.ts:102-108`
 **CWE:** CWE-1188 (Insecure Default Initialization of Resource)
 
 **Description:**
-The HTTP headers generator reads multiple environment variables:
-
-```typescript
-const config: HeaderGeneratorConfig = {
-  enableSecFetch: process.env.DISABLE_SEC_FETCH !== 'true',
-  enableDNT: process.env.DISABLE_DNT !== 'true',
-  languageRotation: process.env.DISABLE_LANGUAGE_ROTATION !== 'true',
-  simpleMode: process.env.SIMPLE_HEADERS_MODE === 'true',
-  defaultAcceptLanguage: process.env.DEFAULT_ACCEPT_LANGUAGE || 'en-US,en;q=0.9',
-};
-```
-
-And the User-Agent pool is configurable via `USER_AGENT_POOL_CONFIG` which accepts custom pool configuration as JSON. None of these environment variables are documented in the README or validated for correctness. The `USER_AGENT_POOL_CONFIG` variable is particularly concerning as it accepts arbitrary JSON.
+The server reads multiple undocumented environment variables (`DISABLE_SEC_FETCH`, `DISABLE_DNT`, `SIMPLE_HEADERS_MODE`, `USER_AGENT_POOL_CONFIG`, etc.). The `USER_AGENT_POOL_CONFIG` variable accepts arbitrary JSON without validation.
 
 **Recommendation:**
 - Document all accepted environment variables.
-- Validate environment variable values (especially JSON inputs).
+- Validate environment variable values.
 
 ---
 
-### LOW-4: `setInterval` Timer Leak
+### LOW-5: `setInterval` Timer Leak on Shutdown
 
 **Severity:** LOW
 **Location:** `src/utils/cache.ts:19`, `src/index.ts:308`
 **CWE:** CWE-404 (Improper Resource Shutdown or Release)
 
 **Description:**
-Each `MemoryCache` instance creates a `setInterval` for cleanup that runs every 5 minutes. With 8 cache instances, this creates 8 perpetual timers. The `schedulePeriodicCacheRefresh()` creates another timer. None of these timers are cleaned up on server shutdown, which can prevent clean process exit and cause resource leaks during testing.
+8 cache instances each create a `setInterval` for cleanup (every 5 minutes), plus `schedulePeriodicCacheRefresh()` creates another timer. None are cleaned up on shutdown.
 
 **Recommendation:**
-- Store interval references and clear them on shutdown.
-- Use `unref()` on timers to prevent them from keeping the process alive.
+- Store interval references and clear them on `SIGINT`/`SIGTERM`.
+- Use `unref()` on timers.
 
 ---
 
-### INFO-1: No Authentication or Authorization on MCP Tools
+### INFO-1: User-Agent Rotation Is a Necessary Design Choice
+
+**Severity:** INFORMATIONAL
+**Location:** `src/utils/constants.ts:66-101`, `src/utils/http-client.ts`, `src/utils/user-agent-pool.ts`
+
+**Description:**
+The server implements browser header simulation with 25 Safari User-Agent strings, rotation strategies, and `Sec-Fetch-*` header generation. **This is not a security vulnerability.** Apple does not provide an official public API for developer documentation. The only way to access this content programmatically is through Apple's web endpoints, which expect browser-like requests. Without this header simulation, the server would not function.
+
+**User awareness:** Users should understand that this server makes automated requests to Apple's website disguised as browser traffic. While necessary, this could theoretically result in IP-level rate limiting by Apple if used excessively.
+
+---
+
+### INFO-2: No Authentication on MCP Tools (Standard for MCP)
 
 **Severity:** INFORMATIONAL
 **Location:** `src/index.ts`, `src/tools/handlers.ts`
 
 **Description:**
-The MCP server exposes all tools without any authentication or authorization controls. Any MCP client that connects can invoke any tool. This is standard for local MCP servers using stdio transport, but users should understand that:
-
-1. Any AI model connected to this server can make arbitrary Apple Developer Documentation requests on their behalf.
-2. The `get_performance_report` and `get_cache_stats` tools expose internal server metrics.
-3. There is no rate limiting per client - only a global rate limit of 100 requests/minute.
-
-**Impact:** Standard for MCP architecture. Users should be aware that connecting this server grants the AI model full access to all tools.
+All tools are exposed without authentication. This is standard for local MCP servers using stdio transport. Users should understand that connecting this server grants the AI model access to all tools, including `get_performance_report` and `get_cache_stats` which expose internal metrics.
 
 ---
 
-### INFO-2: Dependencies Are Minimal and Reputable
+### INFO-3: Dependencies Are Minimal and Reputable
 
 **Severity:** INFORMATIONAL
 **Location:** `package.json`
 
 **Description:**
-The production dependency surface is minimal:
-- `@modelcontextprotocol/sdk` ^1.15.1 - Official MCP SDK
-- `cheerio` ^1.1.0 - HTML parsing (well-maintained, widely used)
-- `zod` ^4.0.5 - Schema validation (well-maintained, widely used)
+Only 3 production dependencies, all well-maintained:
+- `@modelcontextprotocol/sdk` ^1.15.1
+- `cheerio` ^1.1.0
+- `zod` ^4.0.5
 
-All three are reputable, actively maintained packages. The use of caret (`^`) version ranges means minor/patch updates will be automatically applied, which could theoretically introduce supply chain vulnerabilities, but this is standard npm practice.
-
-**Recommendation:**
-- Consider using a lockfile (`pnpm-lock.yaml` is present) and auditing it periodically.
-- Run `npm audit` regularly.
+Low supply chain risk. A `pnpm-lock.yaml` lockfile is present.
 
 ---
 
-### INFO-3: No Network Egress Restrictions Beyond Apple
+### INFO-4: No Network Egress Restrictions at HTTP Client Level
 
 **Severity:** INFORMATIONAL
 **Location:** `src/utils/http-client.ts`
 
 **Description:**
-While the URL validation in `index.ts` checks for `developer.apple.com`, the HTTP client itself (`httpClient.get()`, `httpClient.getText()`, `httpClient.getJson()`) has no domain restrictions. If a bypass of the URL validation is found (see MED-1), the HTTP client will happily make requests to any domain.
-
-The HTTP client also leaks information about the user's environment through its requests:
-- IP address
-- Network topology (through connection patterns)
-- Timing information
-
-**Recommendation:**
-- Implement domain allowlisting at the HTTP client level as defense in depth.
+The HTTP client has no built-in domain restrictions. URL validation happens at the tool handler level. If the URL validation is bypassed (see MED-1), the client will make requests to any domain. Adding domain allowlisting at the client level would provide defense in depth.
 
 ---
 
 ## Threat Model Summary
 
-| Threat | Risk Level | Mitigated? |
+| Threat | Risk Level | Exploitable? |
 |--------|-----------|------------|
-| Arbitrary file read via path traversal | HIGH | No |
-| SSRF via URL validation bypass | MEDIUM | Partially |
-| Memory exhaustion via large responses | MEDIUM | No |
-| Apple TOS violation / IP ban | MEDIUM | No |
-| Prompt injection leading to tool abuse | MEDIUM | Partially (Zod schemas) |
-| Information leakage via error messages | MEDIUM | No |
-| Denial of service via resource exhaustion | LOW | Partially (rate limiter) |
-| Supply chain compromise | LOW | Partially (minimal deps) |
+| Arbitrary file read via path traversal | **HIGH** | **Yes** — via prompt injection |
+| SSRF via URL validation bypass | **MEDIUM** | **Yes** — via prompt injection |
+| Memory exhaustion via large responses | LOW | Only if combined with SSRF |
+| Error message path leakage | LOW | Aids exploitation of HIGH-1 |
+| Denial of service via resource exhaustion | LOW | Partially mitigated (rate limiter) |
+| Supply chain compromise | LOW | Minimal dependency surface |
 
 ---
 
@@ -366,17 +247,17 @@ The HTTP client also leaks information about the user's environment through its 
 4. **Minimal dependencies:** Only 3 production dependencies, all well-maintained.
 5. **No credential storage:** The server does not handle or store any user credentials.
 6. **Stdio transport:** Uses local stdio communication, not exposed to the network.
-7. **URL validation present:** The `isValidAppleDeveloperUrl()` function properly validates hostnames (though not used consistently).
+7. **URL validation present:** A proper `isValidAppleDeveloperUrl()` function exists (but needs consistent use).
 8. **Retry limits:** HTTP retries are capped at 3 attempts with exponential backoff.
 
 ---
 
 ## Recommendations Summary (Priority Order)
 
-1. **[HIGH]** Add path traversal protection to WWDC data loading functions by validating `year`, `videoId`, and `topicId` against strict regex patterns and verifying resolved paths are within the data directory.
-2. **[MEDIUM]** Standardize URL validation to use `isValidAppleDeveloperUrl()` (hostname check) everywhere, not just in the top-level handler.
-3. **[MEDIUM]** Add per-entry size limits to the caching system.
-4. **[MEDIUM]** Sanitize error messages before returning them as tool responses.
-5. **[LOW]** Add maximum length constraints to all string inputs in Zod schemas.
-6. **[LOW]** Document all environment variables and validate their values.
+1. **[HIGH] Fix path traversal** — Validate `year`, `videoId`, and `topicId` against strict regex patterns. Verify resolved paths are within the data directory before reading.
+2. **[MEDIUM] Fix URL validation** — Use `isValidAppleDeveloperUrl()` (hostname check) consistently in all code paths, not just the top-level handler. Add domain allowlisting at the HTTP client level.
+3. **[LOW]** Add maximum length constraints to string inputs in Zod schemas.
+4. **[LOW]** Sanitize error messages before returning them as tool responses.
+5. **[LOW]** Add per-entry size limits to caches.
+6. **[LOW]** Document environment variables and validate their values.
 7. **[LOW]** Fix timer cleanup on shutdown.
