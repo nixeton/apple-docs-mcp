@@ -4,12 +4,17 @@
 
 import { z } from 'zod';
 
+// Reusable safe-input patterns to prevent path traversal
+const safeYearSchema = z.string().regex(/^\d{4}$/, 'Year must be exactly 4 digits (e.g., "2024")');
+const safeVideoIdSchema = z.string().regex(/^\d+$/, 'Video ID must contain only digits');
+const safeTopicIdSchema = z.string().regex(/^[a-zA-Z0-9-]+$/, 'Topic ID must contain only alphanumeric characters and hyphens');
+
 /**
  * Schema for list_wwdc_videos
  */
 export const listWWDCVideosSchema = z.object({
-  year: z.string().optional().describe('Filter by WWDC year'),
-  topic: z.string().optional().describe('Filter by topic keyword'),
+  year: safeYearSchema.optional().describe('Filter by WWDC year'),
+  topic: z.string().max(200).optional().describe('Filter by topic keyword'),
   hasCode: z.boolean().optional().describe('Filter by code availability'),
   limit: z.number().min(1).max(200).default(50).describe('Maximum number of videos'),
 });
@@ -18,10 +23,10 @@ export const listWWDCVideosSchema = z.object({
  * Schema for search_wwdc_content
  */
 export const searchWWDCContentSchema = z.object({
-  query: z.string().min(1).describe('Search query'),
+  query: z.string().min(1).max(500).describe('Search query'),
   searchIn: z.enum(['transcript', 'code', 'both']).default('both').describe('Where to search'),
-  year: z.string().optional().describe('Filter by WWDC year'),
-  language: z.string().optional().describe('Filter code by language'),
+  year: safeYearSchema.optional().describe('Filter by WWDC year'),
+  language: z.string().max(50).optional().describe('Filter code by language'),
   limit: z.number().min(1).max(100).default(20).describe('Maximum number of results'),
 });
 
@@ -29,8 +34,8 @@ export const searchWWDCContentSchema = z.object({
  * Schema for get_wwdc_video
  */
 export const getWWDCVideoSchema = z.object({
-  year: z.string().describe('WWDC year'),
-  videoId: z.string().describe('Video ID'),
+  year: safeYearSchema.describe('WWDC year'),
+  videoId: safeVideoIdSchema.describe('Video ID'),
   includeTranscript: z.boolean().default(true).describe('Include transcript'),
   includeCode: z.boolean().default(true).describe('Include code examples'),
 });
@@ -39,10 +44,10 @@ export const getWWDCVideoSchema = z.object({
  * Schema for get_wwdc_code_examples
  */
 export const getWWDCCodeExamplesSchema = z.object({
-  framework: z.string().optional().describe('Filter by framework'),
-  topic: z.string().optional().describe('Filter by topic'),
-  year: z.string().optional().describe('Filter by WWDC year'),
-  language: z.string().optional().describe('Filter by programming language'),
+  framework: z.string().max(200).optional().describe('Filter by framework'),
+  topic: z.string().max(200).optional().describe('Filter by topic'),
+  year: safeYearSchema.optional().describe('Filter by WWDC year'),
+  language: z.string().max(50).optional().describe('Filter by programming language'),
   limit: z.number().min(1).max(100).default(30).describe('Maximum number of examples'),
 });
 
@@ -50,9 +55,9 @@ export const getWWDCCodeExamplesSchema = z.object({
  * Schema for browse_wwdc_topics
  */
 export const browseWWDCTopicsSchema = z.object({
-  topicId: z.string().optional().describe('Specific topic ID to browse'),
+  topicId: safeTopicIdSchema.optional().describe('Specific topic ID to browse'),
   includeVideos: z.boolean().default(true).describe('Include video list'),
-  year: z.string().optional().describe('Filter videos by year'),
+  year: safeYearSchema.optional().describe('Filter videos by year'),
   limit: z.number().min(1).max(100).default(20).describe('Maximum number of videos per topic'),
 });
 
@@ -60,8 +65,8 @@ export const browseWWDCTopicsSchema = z.object({
  * Schema for find_related_wwdc_videos
  */
 export const findRelatedWWDCVideosSchema = z.object({
-  videoId: z.string().describe('Video ID to find related videos for'),
-  year: z.string().describe('Year of the source video'),
+  videoId: safeVideoIdSchema.describe('Video ID to find related videos for'),
+  year: safeYearSchema.describe('Year of the source video'),
   includeExplicitRelated: z.boolean().default(true).describe('Include explicitly related videos'),
   includeTopicRelated: z.boolean().default(true).describe('Include videos from same topics'),
   includeYearRelated: z.boolean().default(false).describe('Include videos from same year'),

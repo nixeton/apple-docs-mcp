@@ -23,6 +23,13 @@ jest.mock('../../src/utils/http-client.js', () => ({
 
 jest.mock('../../src/utils/url-converter.js', () => ({
   convertToJsonApiUrl: jest.fn(),
+  isValidAppleDeveloperUrl: jest.fn((url: string) => {
+    try {
+      return new URL(url).hostname === 'developer.apple.com';
+    } catch {
+      return false;
+    }
+  }),
 }));
 
 import { apiCache, docCache } from '../../src/utils/cache.js';
