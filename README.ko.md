@@ -1,6 +1,5 @@
 # Apple Docs MCP - Apple 개발자 문서 모델 컨텍스트 프로토콜 서버
 
-[![npm 버전](https://badge.fury.io/js/@kimsungwhee%2Fapple-docs-mcp.svg)](https://badge.fury.io/js/@kimsungwhee%2Fapple-docs-mcp)
 [![라이선스: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Apple 개발자 문서 MCP 서버 - 모델 컨텍스트 프로토콜을 통해 Apple 공식 개발자 문서, 프레임워크, API, SwiftUI, UIKit 및 WWDC 비디오에 액세스하세요. AI 기반 자연어 쿼리로 iOS, macOS, watchOS, tvOS, visionOS 문서를 검색합니다. Claude, Cursor 또는 MCP 호환 AI 어시스턴트에서 Swift/Objective-C 코드 예제, API 레퍼런스 및 기술 가이드를 즉시 확인할 수 있습니다.
@@ -37,16 +36,11 @@ Claude Desktop 구성 파일에 다음을 추가하세요:
   "mcpServers": {
     "apple-docs": {
       "command": "npx",
-      "args": ["-y", "@kimsungwhee/apple-docs-mcp"]
+      "args": ["-y", "github:nixeton/apple-docs-mcp"]
     }
   }
 }
 ```
-
-> **참고**: 이전 버전이 사용되는 문제가 발생하면 `@latest`를 추가하여 최신 버전을 강제합니다:
-> ```json
-> "args": ["-y", "@kimsungwhee/apple-docs-mcp@latest"]
-> ```
 
 Claude Desktop을 재시작하고 Apple API에 대해 질문해보세요!
 
@@ -56,7 +50,7 @@ Claude Desktop을 재시작하고 Apple API에 대해 질문해보세요!
 <summary><strong>📱 Claude Code</strong></summary>
 
 ```bash
-claude mcp add apple-docs -- npx -y @kimsungwhee/apple-docs-mcp@latest
+claude mcp add apple-docs -- npx -y github:nixeton/apple-docs-mcp
 ```
 
 [📖 Claude Code MCP 문서](https://docs.anthropic.com/en/docs/claude-code/mcp)
@@ -75,7 +69,7 @@ claude mcp add apple-docs -- npx -y @kimsungwhee/apple-docs-mcp@latest
   "mcpServers": {
     "apple-docs": {
       "command": "npx",
-      "args": ["-y", "@kimsungwhee/apple-docs-mcp"]
+      "args": ["-y", "github:nixeton/apple-docs-mcp"]
     }
   }
 }
@@ -97,7 +91,7 @@ VS Code MCP 구성에 추가:
       "apple-docs": {
         "type": "stdio",
         "command": "npx",
-        "args": ["-y", "@kimsungwhee/apple-docs-mcp"]
+        "args": ["-y", "github:nixeton/apple-docs-mcp"]
       }
     }
   }
@@ -118,7 +112,7 @@ Windsurf MCP 구성에 추가:
   "mcpServers": {
     "apple-docs": {
       "command": "npx",
-      "args": ["-y", "@kimsungwhee/apple-docs-mcp"]
+      "args": ["-y", "github:nixeton/apple-docs-mcp"]
     }
   }
 }
@@ -139,7 +133,7 @@ Zed `settings.json`에 추가:
     "Apple Docs": {
       "command": {
         "path": "npx",
-        "args": ["-y", "@kimsungwhee/apple-docs-mcp"]
+        "args": ["-y", "github:nixeton/apple-docs-mcp"]
       },
       "settings": {}
     }
@@ -165,7 +159,7 @@ Zed `settings.json`에 추가:
   "mcpServers": {
     "apple-docs": {
       "command": "npx",
-      "args": ["-y", "@kimsungwhee/apple-docs-mcp"],
+      "args": ["-y", "github:nixeton/apple-docs-mcp"],
       "disabled": false,
       "autoApprove": []
     }
@@ -185,7 +179,7 @@ Windows 시스템의 경우:
   "mcpServers": {
     "apple-docs": {
       "command": "cmd",
-      "args": ["/c", "npx", "-y", "@kimsungwhee/apple-docs-mcp"],
+      "args": ["/c", "npx", "-y", "github:nixeton/apple-docs-mcp"],
       "disabled": false,
       "autoApprove": []
     }
@@ -198,23 +192,15 @@ Windows 시스템의 경우:
 <details>
 <summary><strong>⚙️ 고급 설치</strong></summary>
 
-**전역 설치**:
+**설치**:
 ```bash
-# pnpm 사용 (권장)
-pnpm add -g @kimsungwhee/apple-docs-mcp
-
-# npm 사용
-npm install -g @kimsungwhee/apple-docs-mcp
-```
-
-**직접 사용**:
-```bash
-npx @kimsungwhee/apple-docs-mcp --help
+# npx로 직접 사용
+npx -y github:nixeton/apple-docs-mcp --help
 ```
 
 **개발 환경 설정**:
 ```bash
-git clone https://github.com/kimsungwhee/apple-docs-mcp.git
+git clone https://github.com/nixeton/apple-docs-mcp.git
 cd apple-docs-mcp
 
 # pnpm 사용 (권장)
@@ -423,7 +409,7 @@ pnpm run clean  # 또는: npm run clean
 node dist/index.js
 
 # 샘플 쿼리로 테스트
-npx @kimsungwhee/apple-docs-mcp --test
+npx github:nixeton/apple-docs-mcp --test
 ```
 
 ## 🤝 기여
@@ -452,6 +438,6 @@ MIT 라이선스 - 자세한 내용은 [LICENSE](LICENSE)를 참조하세요.
 
 Apple 개발자 문서 검색 | iOS 개발 | macOS 개발 | Swift 프로그래밍 | SwiftUI | UIKit | Xcode | WWDC 비디오 | 모델 컨텍스트 프로토콜 | MCP 서버
 
-[문제 신고](https://github.com/kimsungwhee/apple-docs-mcp/issues) • [기능 요청](https://github.com/kimsungwhee/apple-docs-mcp/issues/new) • [문서](https://github.com/kimsungwhee/apple-docs-mcp)
+[문제 신고](https://github.com/nixeton/apple-docs-mcp/issues) • [기능 요청](https://github.com/nixeton/apple-docs-mcp/issues/new) • [문서](https://github.com/nixeton/apple-docs-mcp)
 
 </div>

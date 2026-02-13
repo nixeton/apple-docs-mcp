@@ -1,6 +1,6 @@
 # Security Audit Report: apple-docs-mcp
 
-**Package:** `@kimsungwhee/apple-docs-mcp` v1.0.26
+**Package:** `apple-docs-mcp` v1.0.26 (fork: nixeton/apple-docs-mcp)
 **Audit Date:** 2026-02-12
 **Scope:** Security analysis for users of this MCP server
 **Auditor:** Automated security review
