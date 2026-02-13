@@ -1,5 +1,5 @@
 {
-  "name": "@kimsungwhee/apple-docs-mcp",
+  "name": "apple-docs-mcp",
   "version": "1.0.26",
   "description": "MCP server for Apple Developer Documentation - Search iOS/macOS/SwiftUI/UIKit docs, WWDC videos, Swift/Objective-C APIs & code examples in Claude, Cursor & AI assistants",
   "type": "module",
@@ -15,12 +15,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/kimsungwhee/apple-docs-mcp.git"
+    "url": "https://github.com/nixeton/apple-docs-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/kimsungwhee/apple-docs-mcp/issues"
+    "url": "https://github.com/nixeton/apple-docs-mcp/issues"
   },
-  "homepage": "https://github.com/kimsungwhee/apple-docs-mcp#readme",
+  "homepage": "https://github.com/nixeton/apple-docs-mcp#readme",
   "publishConfig": {
     "access": "public"
   },

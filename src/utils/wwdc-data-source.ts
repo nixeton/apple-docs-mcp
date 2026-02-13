@@ -17,10 +17,25 @@ import type { WWDCVideo, GlobalMetadata, TopicIndex, YearIndex } from '../types/
 const WWDC_DATA_DIR = getWWDCDataDirectory();
 
 /**
+ * Validate that a resolved path is contained within the data directory.
+ * Prevents path traversal attacks (e.g., "../../etc/passwd").
+ */
+function assertPathWithinDataDir(resolvedPath: string): void {
+  const normalizedBase = path.resolve(WWDC_DATA_DIR) + path.sep;
+  const normalizedTarget = path.resolve(resolvedPath);
+  if (!normalizedTarget.startsWith(normalizedBase) && normalizedTarget !== path.resolve(WWDC_DATA_DIR)) {
+    throw new Error('Invalid data path: access denied');
+  }
+}
+
+/**
  * Read file from bundled data directory
  */
 async function readBundledFile(filePath: string): Promise<string> {
   const fullPath = path.join(WWDC_DATA_DIR, filePath);
+
+  // Prevent path traversal — ensure resolved path stays within data directory
+  assertPathWithinDataDir(fullPath);
 
   try {
     const content = await fs.readFile(fullPath, 'utf-8');
@@ -69,9 +84,37 @@ export async function loadGlobalMetadata(): Promise<GlobalMetadata> {
 }
 
 /**
+ * Validate year format (4 digits only)
+ */
+function validateYear(year: string): void {
+  if (!/^\d{4}$/.test(year)) {
+    throw new Error(`Invalid year format: ${year}`);
+  }
+}
+
+/**
+ * Validate video ID format (digits only)
+ */
+function validateVideoId(videoId: string): void {
+  if (!/^\d+$/.test(videoId)) {
+    throw new Error(`Invalid video ID format: ${videoId}`);
+  }
+}
+
+/**
+ * Validate topic ID format (lowercase alphanumeric and hyphens only)
+ */
+function validateTopicId(topicId: string): void {
+  if (!/^[a-zA-Z0-9-]+$/.test(topicId)) {
+    throw new Error(`Invalid topic ID format: ${topicId}`);
+  }
+}
+
+/**
  * Load topic index
  */
 export async function loadTopicIndex(topicId: string): Promise<TopicIndex> {
+  validateTopicId(topicId);
   try {
     const data = await fetchData(`by-topic/${topicId}/index.json`);
     return JSON.parse(data);
@@ -85,6 +128,7 @@ export async function loadTopicIndex(topicId: string): Promise<TopicIndex> {
  * Load year index
  */
 export async function loadYearIndex(year: string): Promise<YearIndex> {
+  validateYear(year);
   try {
     const data = await fetchData(`by-year/${year}/index.json`);
     return JSON.parse(data);
@@ -98,6 +142,8 @@ export async function loadYearIndex(year: string): Promise<YearIndex> {
  * Load individual video data
  */
 export async function loadVideoData(year: string, videoId: string): Promise<WWDCVideo> {
+  validateYear(year);
+  validateVideoId(videoId);
   try {
     const data = await fetchData(`videos/${year}-${videoId}.json`);
     return JSON.parse(data);

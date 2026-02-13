@@ -1,5 +1,5 @@
 import { apiCache, generateEnhancedCacheKey } from '../utils/cache.js';
-import { convertToJsonApiUrl } from '../utils/url-converter.js';
+import { convertToJsonApiUrl, isValidAppleDeveloperUrl } from '../utils/url-converter.js';
 import { httpClient } from '../utils/http-client.js';
 import type { AppleDocJSON } from '../types/apple-docs.js';
 import type { ContentSection, ContentItem } from '../types/content-sections.js';
@@ -264,8 +264,8 @@ export async function fetchAppleDocJson(
     options = {};
   }
   try {
-    // Validate that this is an Apple Developer URL
-    if (!url.includes('developer.apple.com')) {
+    // Validate that this is an Apple Developer URL (proper hostname check)
+    if (!isValidAppleDeveloperUrl(url)) {
       throw new Error('URL must be from developer.apple.com');
     }
 
@@ -311,8 +311,13 @@ export async function fetchAppleDocJson(
         } else if (refPath.startsWith('/')) {
           refPath = refPath.substring(1);
         }
-        const refUrl = `https://developer.apple.com/tutorials/data/documentation/${refPath}.json`;
-        return await fetchAppleDocJson(refUrl, options, maxDepth - 1);
+        // Reject paths that contain protocol markers or traversal sequences
+        if (refPath.includes('://') || refPath.includes('..')) {
+          logger.warn(`Skipping suspicious reference path: ${refPath}`);
+        } else {
+          const refUrl = `https://developer.apple.com/tutorials/data/documentation/${refPath}.json`;
+          return await fetchAppleDocJson(refUrl, options, maxDepth - 1);
+        }
       }
     }
 
